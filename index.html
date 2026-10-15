@@ -533,7 +533,80 @@ function editProduct(id){const p=products.find(x=>x.id===id);if(!p)return;docume
 function resetProductForm(){document.getElementById('productForm').reset();document.getElementById('editId').value='';document.getElementById('pStock').value=10;document.getElementById('pEmoji').value='🛍️';document.getElementById('pImageFile').value='';document.getElementById('imagePreview').textContent='با انتخاب عکس، پیش‌نمایش اینجا نمایش داده می‌شود.';document.getElementById('productFormTitle').textContent='➕ افزودن کالای جدید';document.getElementById('saveProduct').textContent='ذخیره کالا';document.getElementById('cancelEdit').style.display='none'}
 document.getElementById('cancelEdit').onclick=resetProductForm;
 function deleteProduct(id){const p=products.find(x=>x.id===id);if(!p)return;if(!confirm('کالای «'+p.name+'» حذف شود؟'))return;products=products.filter(x=>x.id!==id);delete cart[id];save(KEY_PRODUCTS,products);save(KEY_CART,cart);renderAll();renderAdmin();toast('کالا حذف شد.')}
-function renderAdmin(){document.getElementById('statProducts').textContent=fa(products.length);document.getElementById('statOrders').textContent=fa(orders.length);document.getElementById('statSales').textContent=money(orders.reduce((s,o)=>s+o.total,0));document.getElementById('adminProducts').innerHTML=products.length?products.map(p=>`<tr><td>${esc(p.emoji)} ${esc(p.name)}</td><td>${esc(p.cat)}</td><td>${money(p.price)}</td><td>${fa(p.stock)}</td><td><button class="smallbtn" onclick="editProduct(${p.id})">ویرایش</button><button class="smallbtn danger" onclick="deleteProduct(${p.id})">حذف</button></td></tr>`).join(''):'<tr><td colspan="5">هنوز کالایی وجود ندارد.</td></tr>';renderOrders()}
+
+async function renderOrders() {
+  const box = document.getElementById('adminOrders');
+  box.innerHTML = '<div class="empty">در حال دریافت سفارش‌ها...</div>';
+
+  let token = sessionStorage.getItem('adminApiToken');
+
+  if (!token) {
+    token = prompt('توکن مدیریت را وارد کن:');
+    if (!token) {
+      box.innerHTML = '<div class="empty">برای دیدن سفارش‌ها، توکن مدیریت لازم است.</div>';
+      return;
+    }
+    token = token.trim();
+    sessionStorage.setItem('adminApiToken', token);
+  }
+
+  try {
+    const response = await fetch('/api/orders', {
+      headers: {
+        'Authorization': 'Bearer ' + token
+      },
+      cache: 'no-store'
+    });
+
+    if (response.status === 401) {
+      sessionStorage.removeItem('adminApiToken');
+      box.innerHTML = '<div class="empty">توکن مدیریت معتبر نیست. صفحه را دوباره باز کن.</div>';
+      return;
+    }
+
+    if (!response.ok) {
+      throw new Error('دریافت سفارش‌ها ناموفق بود.');
+    }
+
+    orders = await response.json();
+
+    document.getElementById('statOrders').textContent = fa(orders.length);
+    document.getElementById('statSales').textContent =
+      money(orders.reduce((sum, order) => sum + order.total, 0));
+
+    if (!orders.length) {
+      box.innerHTML = '<div class="empty">هنوز سفارشی ثبت نشده است.</div>';
+      return;
+    }
+
+    box.innerHTML = orders.map(o => `
+      <div class="panel">
+        <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
+          <b>سفارش #${esc(String(o.id).slice(-6))}</b>
+          <select class="status" onchange="updateStatus(${o.id},this.value)">
+            ${['جدید','در حال آماده‌سازی','آماده تحویل','تحویل شد','لغو شد']
+              .map(s => `<option ${o.status===s?'selected':''}>${s}</option>`).join('')}
+          </select>
+        </div>
+        <p class="muted">${esc(o.date)} · ${esc(o.customer)} · ${esc(o.phone)}</p>
+        <p style="font-size:13px;line-height:2">
+          آدرس: ${esc(o.address)}
+          <br>
+          ${o.note ? 'توضیحات: '+esc(o.note)+'<br>' : ''}
+          روش پرداخت: ${o.paymentMethod==='cash'?'درب منزل':'آنلاین'}
+          <br>
+          ${o.location ? 'موقعیت: '+o.location.lat.toFixed(6)+', '+o.location.lng.toFixed(6)+' · <a target="_blank" rel="noopener" href="https://www.google.com/maps?q='+o.location.lat+','+o.location.lng+'">بازکردن نقشه</a><br>' : ''}
+          کالاها: ${o.items.map(i=>esc(i.name)+' × '+fa(i.qty)).join('، ')}
+        </p>
+        <b style="color:var(--green)">جمع: ${money(o.total)}</b>
+      </div>
+    `).join('');
+
+  } catch (error) {
+    box.innerHTML = '<div class="empty">دریافت سفارش‌ها با خطا مواجه شد. اتصال را بررسی کن و دوباره وارد مدیریت شو.</div>';
+  }
+}
+
 function renderOrders(){const box=document.getElementById('adminOrders');if(!orders.length){box.innerHTML='<div class="empty">هنوز سفارشی ثبت نشده. می‌توانی از صفحه فروشگاه یک سفارش آزمایشی ثبت کنی.</div>';return}box.innerHTML=orders.map(o=>`<div class="panel"><div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><b>سفارش #${esc(String(o.id).slice(-6))}</b><select class="status" onchange="updateStatus(${o.id},this.value)">${['جدید','در حال آماده‌سازی','آماده تحویل','تحویل شد','لغو شد'].map(s=>`<option ${o.status===s?'selected':''}>${s}</option>`).join('')}</select></div><p class="muted">${esc(o.date)} · ${esc(o.customer)} · ${esc(o.phone)}</p><p style="font-size:13px;line-height:2">آدرس: ${esc(o.address)}<br>${o.note?'توضیحات: '+esc(o.note)+'<br>':''}روش پرداخت: ${o.paymentMethod==='cash'?'درب منزل':'آنلاین'}<br>${o.location?'موقعیت: '+o.location.lat.toFixed(6)+', '+o.location.lng.toFixed(6)+' · <a target="_blank" rel="noopener" href="https://www.google.com/maps?q='+o.location.lat+','+o.location.lng+'">بازکردن نقشه</a><br>':''}کالاها: ${o.items.map(i=>esc(i.name)+' × '+fa(i.qty)).join('، ')}</p><b style="color:var(--green)">جمع: ${money(o.total)}</b></div>`).join('')}
 function updateStatus(id,status){orders=orders.map(o=>o.id===id?{...o,status}:o);save(KEY_ORDERS,orders);renderAdmin();toast('وضعیت سفارش تغییر کرد.')}
 
