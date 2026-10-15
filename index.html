@@ -608,7 +608,43 @@ async function renderOrders() {
 }
 
 function renderOrders(){const box=document.getElementById('adminOrders');if(!orders.length){box.innerHTML='<div class="empty">هنوز سفارشی ثبت نشده. می‌توانی از صفحه فروشگاه یک سفارش آزمایشی ثبت کنی.</div>';return}box.innerHTML=orders.map(o=>`<div class="panel"><div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><b>سفارش #${esc(String(o.id).slice(-6))}</b><select class="status" onchange="updateStatus(${o.id},this.value)">${['جدید','در حال آماده‌سازی','آماده تحویل','تحویل شد','لغو شد'].map(s=>`<option ${o.status===s?'selected':''}>${s}</option>`).join('')}</select></div><p class="muted">${esc(o.date)} · ${esc(o.customer)} · ${esc(o.phone)}</p><p style="font-size:13px;line-height:2">آدرس: ${esc(o.address)}<br>${o.note?'توضیحات: '+esc(o.note)+'<br>':''}روش پرداخت: ${o.paymentMethod==='cash'?'درب منزل':'آنلاین'}<br>${o.location?'موقعیت: '+o.location.lat.toFixed(6)+', '+o.location.lng.toFixed(6)+' · <a target="_blank" rel="noopener" href="https://www.google.com/maps?q='+o.location.lat+','+o.location.lng+'">بازکردن نقشه</a><br>':''}کالاها: ${o.items.map(i=>esc(i.name)+' × '+fa(i.qty)).join('، ')}</p><b style="color:var(--green)">جمع: ${money(o.total)}</b></div>`).join('')}
-function updateStatus(id,status){orders=orders.map(o=>o.id===id?{...o,status}:o);save(KEY_ORDERS,orders);renderAdmin();toast('وضعیت سفارش تغییر کرد.')}
+
+async function updateStatus(id, status) {
+  const token = sessionStorage.getItem('adminApiToken');
+
+  if (!token) {
+    alert('توکن مدیریت پیدا نشد. دوباره وارد پنل مدیریت شو.');
+    return;
+  }
+
+  try {
+    const response = await fetch('/api/orders', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token
+      },
+      body: JSON.stringify({ id, status })
+    });
+
+    if (response.status === 401) {
+      sessionStorage.removeItem('adminApiToken');
+      alert('توکن مدیریت معتبر نیست. دوباره وارد پنل مدیریت شو.');
+      return;
+    }
+
+    if (!response.ok) {
+      throw new Error('ذخیره وضعیت سفارش ناموفق بود.');
+    }
+
+    orders = orders.map(o => o.id === id ? { ...o, status } : o);
+    renderAdmin();
+    toast('وضعیت سفارش ذخیره شد.');
+  } catch (error) {
+    alert('تغییر وضعیت در سرور ذخیره نشد. دوباره تلاش کن.');
+  }
+}
+
 
 function loadStoreSettings(){document.getElementById('storeAddress').value=storeSettings.address||'';document.getElementById('storeMapUrl').value=storeSettings.mapUrl||''}
 function renderStoreAddress(){const address=storeSettings.address||'سه راه حافظیه، خیابان سمندری، نبش بن‌بست مادر';document.getElementById('footerStoreAddress').textContent=address;const link=document.getElementById('mapLink');link.href=(storeSettings.mapUrl&&/^https?:\/\//i.test(storeSettings.mapUrl))?storeSettings.mapUrl:'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(address);link.style.display='inline-block'}
